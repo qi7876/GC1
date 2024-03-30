@@ -2,10 +2,17 @@
 #include <Wire.h>        // Only needed for Arduino 1.6.5 and earlier
 #include "SSD1306Wire.h" // legacy: #include "SSD1306.h"
 
+#define   FRQ_CNT_GPIO_CHN0 25    // GPIO引脚号
 #define SDA_GPIO 21 // SDA 的 GPIO引脚号
 #define SCL_GPIO 22 // SCL 的 GPIO引脚号
+unsigned int  CountingValue_CHN0;
+float         TimeInterval;       //单位是 秒
+float         FrqValue_CHN0;     //单位是 Hz
 
 void TaskOLEDDisplay(void *ptParam);
+void TaskFrqMeter(void *ptParam);
+void TaskUART0(void *ptParam);
+void PulseCountingChn0(void);
 
 SSD1306Wire display(0x3C, SDA_GPIO, SCL_GPIO);
 
@@ -51,32 +58,55 @@ unsigned char fontArray_qi[] =
 
 unsigned char fontArray_love[] = 
 {
-    0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x1C,0x44,0x22,0x82,0x41,0x02,0x40,0x02,0x40,0x02,0x40,0x04,0x20,0x08,0x10,0x10,0x08,0x20,0x04,0x40,0x02,0x80,0x01,0x00,0x00
+    0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x1C,0x44,0x22,0x82,0x41,0x02,0x40,0x02,0x40,0x02,0x40,0x04,0x20,0x08,0x10,0x10,0x08,0x20,0x04,0x40,0x02,0x80,0x01,0x00,0x00,
 };
 
 void setup()
 {
     // put your setup code here, to run once:
-    // Initialising the UI will init the display too.
-
     Serial.begin(115200);
-    TaskOLEDDisplay(NULL);
+    display.init();                            // 初始化OLED屏
+    display.setTextAlignment(TEXT_ALIGN_LEFT); // 向左对齐
+    // display.flipScreenVertically();            // 垂直翻转
+
+    TimeInterval = 1;
+    FrqValue_CHN0 = 0;
+    CountingValue_CHN0 = 0;
+    
+    pinMode(FRQ_CNT_GPIO_CHN0, INPUT);
+    /*
+    开启外部中断 attachInterrupt(pin,function,mode);
+    参数:
+        pin: 外部中断引脚
+        function: 外部中断回调函数
+        mode: 5种外部中断模式, 见下表:
+            RISING   上升沿触发
+            FALLING  下降沿触发
+            CHANGE   电平变化触发
+            ONLOW    低电平触发
+            ONHIGH   高电平触发
+    */
+
+    attachInterrupt(FRQ_CNT_GPIO_CHN0, PulseCountingChn0, CHANGE);
+    attachInterrupt(FRQ_CNT_GPIO_CHN0, PulseCountingChn0, CHANGE);
+
+    xTaskCreatePinnedToCore(TaskFrqMeter,   "Task FrqMeter",  2048, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(TaskUART0,      "Task UART0",     2048, NULL, 1, NULL, 1);
+
 }
 
 
 void loop()
 {
     // put your main code here, to run repeatedly:
+    TaskOLEDDisplay(NULL);
+    delay(1000);
 }
 
 
 // Functions:
 void TaskOLEDDisplay(void *ptParam)
 {
-    display.init();                            // 初始化OLED屏
-    display.setTextAlignment(TEXT_ALIGN_LEFT); // 向左对齐
-    display.flipScreenVertically();            // 垂直翻转
-
     display.clear(); // 清除OLED屏
     display.setFont(ArialMT_Plain_16);        // 设置字体大小
     display.drawIco16x16(0, 0, fontArray_de); // 显示汉字
@@ -87,7 +117,40 @@ void TaskOLEDDisplay(void *ptParam)
     display.drawIco16x16(80, 0, fontArray_ce);
     display.drawIco16x16(96, 0, fontArray_liang);
     display.drawIco16x16(112, 0, fontArray_qi);
-    display.drawIco16x16(0, 32, fontArray_love);
-    display.drawString(0, 16, "Frequency:");
+    // display.drawIco16x16(0, 32, fontArray_love);
+    display.drawString(0, 16, "Frequency:(Hz)");
+    display.drawString(8, 32, String(FrqValue_CHN0));
     display.display(); // 显示
+}
+
+/*
+TaskFrqMeter
+每隔100mS计算一次频率
+*/
+void TaskFrqMeter(void *ptParam) {
+    while(1) {
+        FrqValue_CHN0 = (float)CountingValue_CHN0 / TimeInterval / 2;
+
+        CountingValue_CHN0 = 0;
+        vTaskDelay((unsigned int)(1000* TimeInterval));//转换成 mS 
+    }
+}
+
+/*
+TaskUART1
+每隔1秒向UART0（即默认串口）发送一串字符
+*/
+void TaskUART0(void *ptParam) {
+    Serial.begin(115200);
+  
+    while(1) {      
+        Serial.print("Frq Chn0:");
+        Serial.println(FrqValue_CHN0);
+    
+        vTaskDelay(1000);
+    }
+}
+
+void PulseCountingChn0(void) {
+    CountingValue_CHN0 = CountingValue_CHN0 + 1;
 }
