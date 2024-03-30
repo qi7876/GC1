@@ -13,6 +13,7 @@ void TaskOLEDDisplay(void *ptParam);
 void TaskFrqMeter(void *ptParam);
 void TaskUART0(void *ptParam);
 void PulseCountingChn0(void);
+void C2UART0(void *ptParam);
 
 SSD1306Wire display(0x3C, SDA_GPIO, SCL_GPIO);
 
@@ -67,7 +68,7 @@ void setup()
     Serial.begin(115200);
     display.init();                            // 初始化OLED屏
     display.setTextAlignment(TEXT_ALIGN_LEFT); // 向左对齐
-    // display.flipScreenVertically();            // 垂直翻转
+    display.flipScreenVertically();            // 垂直翻转
 
     TimeInterval = 1;
     FrqValue_CHN0 = 0;
@@ -92,7 +93,7 @@ void setup()
 
     xTaskCreatePinnedToCore(TaskFrqMeter,   "Task FrqMeter",  2048, NULL, 1, NULL, 1);
     xTaskCreatePinnedToCore(TaskUART0,      "Task UART0",     2048, NULL, 1, NULL, 1);
-
+    xTaskCreatePinnedToCore(C2UART0,        "Task C2ESP32",     2048, NULL, 1, NULL, 1);
 }
 
 
@@ -137,14 +138,14 @@ void TaskFrqMeter(void *ptParam) {
 }
 
 /*
-TaskUART1
+TaskUART0
 每隔1秒向UART0（即默认串口）发送一串字符
 */
 void TaskUART0(void *ptParam) {
     Serial.begin(115200);
   
     while(1) {      
-        Serial.print("Frq Chn0:");
+        Serial.print("D25 Frequency:");
         Serial.println(FrqValue_CHN0);
     
         vTaskDelay(1000);
@@ -153,4 +154,19 @@ void TaskUART0(void *ptParam) {
 
 void PulseCountingChn0(void) {
     CountingValue_CHN0 = CountingValue_CHN0 + 1;
+}
+
+/*
+C2UART0
+检测计算机向ESP32发送的消息
+*/
+void C2UART0(void *ptParam) {
+    Serial.begin(115200);
+  
+    while(1) {      
+        if (Serial.available()) {
+            Serial.print("Received:");
+            Serial.println(char(Serial.read()));
+        }
+    }
 }
