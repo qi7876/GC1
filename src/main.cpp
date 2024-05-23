@@ -1,66 +1,115 @@
-#include <Arduino.h>
-#include <Wire.h>        // Only needed for Arduino 1.6.5 and earlier
-#include "SSD1306Wire.h" // legacy: #include "SSD1306.h"
+#include "Arduino.h"
+#include "Wire.h"
+#include "SSD1306Wire.h"
+#include "esp_system.h"
 
-#define   FRQ_CNT_GPIO_CHN0 25    // GPIO引脚号
-#define SDA_GPIO 21 // SDA 的 GPIO引脚号
-#define SCL_GPIO 22 // SCL 的 GPIO引脚号
-unsigned int  CountingValue_CHN0;
-float         TimeInterval;       //单位是 秒
-float         FrqValue_CHN0;     //单位是 Hz
+#define FRQ_CNT_GPIO_CHN0 4 // GPIO引脚号
+#define SDA_GPIO 20         // SDA 的 GPIO引脚号
+#define SCL_GPIO 19         // SCL 的 GPIO引脚号
+#define ROW_NUM 4
+#define COL_NUM 3
 
-void TaskOLEDDisplay(void *ptParam);
-void TaskFrqMeter(void *ptParam);
-void TaskUART0(void *ptParam);
-void PulseCountingChn0(void);
-void C2UART0(void *ptParam);
+int UI_NUM = 1;
+int Last_Key = -1;
+int Game_Start = 0;
+int UserChoice = 0;
+const int row_pins[ROW_NUM] = {38, 37, 36, 35};
+const int col_pins[COL_NUM] = {41, 40, 39};
+
+const uint8_t rock_bitmap[] = {
+  0b10000000, 0b00001111, 
+  0b11000000, 0b00011111, 
+  0b11100000, 0b00111111, 
+  0b11110000, 0b01111111, 
+  0b11110000, 0b01111111, 
+  0b11111000, 0b11111111, 
+  0b11111000, 0b11111111, 
+  0b11111000, 0b11111111, 
+  0b11111000, 0b11111111, 
+  0b11110000, 0b01111111, 
+  0b11110000, 0b01111111, 
+  0b11100000, 0b00111111, 
+  0b11100000, 0b00111111, 
+  0b11000000, 0b00011111, 
+  0b10000000, 0b00001111, 
+  0b00000000, 0b00000000, 
+};
+
+const uint8_t scissors_bitmap[] = {
+  0b00000000, 0b00000000, 
+  0b00010000, 0b00000001, 
+  0b10100000, 0b00000010, 
+  0b11000000, 0b00000001, 
+  0b11000000, 0b00000011, 
+  0b10000000, 0b00000001, 
+  0b01000000, 0b00000011, 
+  0b00100000, 0b00000100, 
+  0b00010000, 0b00001000, 
+  0b00001000, 0b00010000, 
+  0b00000100, 0b00100000, 
+  0b00000010, 0b01000000, 
+  0b00000100, 0b00100000, 
+  0b00001000, 0b00010000, 
+  0b11110000, 0b00001111, 
+  0b00000000, 0b00000000, 
+};
+
+const uint8_t paper_bitmap[] = {
+  0b11111111, 0b11111111, 
+  0b00000001, 0b10000000, 
+  0b11111001, 0b10111111, 
+  0b00000001, 0b10000000, 
+  0b11111101, 0b10011111, 
+  0b00000001, 0b10000000, 
+  0b11111101, 0b10011111, 
+  0b00000001, 0b10000000, 
+  0b11111101, 0b10011111, 
+  0b00000001, 0b10000000, 
+  0b11111101, 0b10011111, 
+  0b00000001, 0b10000000, 
+  0b11111101, 0b10011111, 
+  0b00000001, 0b10000000, 
+  0b11111111, 0b11111111, 
+  0b00000000, 0b00000000, 
+};
+
+const uint8_t question_mark_bitmap[] = {
+  0b10000000, 0b00000111, 
+  0b11000000, 0b00001111, 
+  0b11100000, 0b00011111, 
+  0b11110000, 0b00111100, 
+  0b11110000, 0b00111000, 
+  0b11110000, 0b00110000, 
+  0b11100000, 0b00000000, 
+  0b11000000, 0b00000001, 
+  0b10000000, 0b00000011, 
+  0b00000000, 0b00000111, 
+  0b00000000, 0b00000110, 
+  0b00000000, 0b00000110, 
+  0b00000000, 0b00000000, 
+  0b00000000, 0b00000110, 
+  0b00000000, 0b00000110, 
+  0b00000000, 0b00000000, 
+};
+
+unsigned int CountingValue_CHN0;
+float TimeInterval;  // 单位是 秒
+float FrqValue_CHN0; // 单位是 Hz
+
+void OLED_Display_UI1(void *ptParam);
+void OLED_Display_UI2(void *ptParam);
+void OLED_Diplay(void *ptParam);
+void Frq_Meter(void *ptParam);
+void UART0_Printer(void *ptParam);
+void Pulse_Counting_Chn0(void);
+int Scan_Keypad(void *ptParam);
+int Key_Action(void *ptParam);
+int User_Choice();
+void Display_Win();
+void Display_Lose();
+void Display_Draw();
 
 SSD1306Wire display(0x3C, SDA_GPIO, SCL_GPIO);
-
-unsigned char fontArray_de[] = 
-{
-    0x10,0x00,0xD0,0x1F,0x48,0x10,0xC4,0x1F,0x52,0x10,0xD0,0x1F,0x08,0x00,0xCC,0x3F,0x0A,0x08,0xE9,0x7F,0x08,0x08,0x48,0x08,0x88,0x08,0x08,0x08,0x08,0x0A,0x08,0x04,
-};
-
-unsigned char fontArray_chi[] = 
-{
-    0x00,0x01,0x00,0x01,0x9E,0x00,0x92,0x7F,0x52,0x00,0x32,0x00,0x92,0x1F,0x12,0x10,0x12,0x08,0x12,0x06,0x1E,0x01,0x92,0x00,0x40,0x40,0x40,0x40,0x80,0x7F,0x00,0x00,
-};
-
-unsigned char fontArray_pai[] = 
-{
-    0x10,0x02,0x12,0x01,0x92,0x3F,0x92,0x24,0x92,0x24,0xBE,0x3F,0x82,0x24,0x82,0x22,0x9E,0x3F,0x12,0x09,0x92,0x08,0xD2,0x7F,0x12,0x08,0x12,0x08,0x12,0x08,0x11,0x08,
-};
-
-unsigned char fontArray_pin[] = 
-{
-    0x08,0x00,0x88,0x7F,0x0A,0x04,0x3A,0x02,0x8A,0x3F,0x8A,0x20,0xFF,0x24,0x80,0x24,0x88,0x24,0xAA,0x24,0xAA,0x24,0xAA,0x22,0x21,0x0A,0x10,0x11,0x8C,0x20,0x43,0x40,
-};
-
-unsigned char fontArray_lv[] = 
-{
-    0x40,0x00,0x80,0x00,0xFE,0x3F,0x40,0x00,0x22,0x22,0xF4,0x11,0x88,0x08,0x44,0x12,0xF2,0x27,0x00,0x04,0x80,0x00,0xFF,0x7F,0x80,0x00,0x80,0x00,0x80,0x00,0x80,0x00,
-};
-
-unsigned char fontArray_ce[] = 
-{
-    0x00,0x20,0xE4,0x23,0x28,0x22,0x28,0x2A,0xA1,0x2A,0xA2,0x2A,0xA2,0x2A,0xA8,0x2A,0xA8,0x2A,0xA4,0x2A,0xA7,0x2A,0x84,0x20,0x44,0x21,0x44,0x22,0x24,0x28,0x10,0x10,
-};
-
-unsigned char fontArray_liang[] = 
-{
-    0x00,0x00,0xF8,0x0F,0x08,0x08,0xF8,0x0F,0x08,0x08,0xFF,0x7F,0x00,0x00,0xF8,0x0F,0x88,0x08,0xF8,0x0F,0x88,0x08,0xF8,0x0F,0x80,0x00,0xF8,0x0F,0x80,0x00,0xFE,0x3F,
-};
-
-unsigned char fontArray_qi[] = 
-{
-    0x00,0x00,0x7C,0x3E,0x44,0x22,0x44,0x22,0x7C,0x3E,0x80,0x04,0x80,0x08,0xFF,0x7F,0x40,0x01,0x30,0x06,0x0C,0x18,0x03,0x60,0x7C,0x3E,0x44,0x22,0x44,0x22,0x7C,0x3E,
-};
-
-unsigned char fontArray_love[] = 
-{
-    0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x1C,0x44,0x22,0x82,0x41,0x02,0x40,0x02,0x40,0x02,0x40,0x04,0x20,0x08,0x10,0x10,0x08,0x20,0x04,0x40,0x02,0x80,0x01,0x00,0x00,
-};
 
 void setup()
 {
@@ -73,7 +122,7 @@ void setup()
     TimeInterval = 1;
     FrqValue_CHN0 = 0;
     CountingValue_CHN0 = 0;
-    
+
     pinMode(FRQ_CNT_GPIO_CHN0, INPUT);
     /*
     开启外部中断 attachInterrupt(pin,function,mode);
@@ -87,53 +136,125 @@ void setup()
             ONLOW    低电平触发
             ONHIGH   高电平触发
     */
+    for (int i = 0; i < ROW_NUM; i++) {
+        pinMode(row_pins[i], OUTPUT);
+        digitalWrite(row_pins[i], HIGH);
+    }
+    
+    // 初始化列引脚为输入，并启用上拉电阻
+    for (int i = 0; i < COL_NUM; i++) {
+        pinMode(col_pins[i], INPUT_PULLUP);
+    }
 
-    attachInterrupt(FRQ_CNT_GPIO_CHN0, PulseCountingChn0, CHANGE);
-    attachInterrupt(FRQ_CNT_GPIO_CHN0, PulseCountingChn0, CHANGE);
+    attachInterrupt(FRQ_CNT_GPIO_CHN0, Pulse_Counting_Chn0, CHANGE);
 
-    xTaskCreatePinnedToCore(TaskFrqMeter,   "Task FrqMeter",  2048, NULL, 1, NULL, 1);
-    xTaskCreatePinnedToCore(TaskUART0,      "Task UART0",     2048, NULL, 1, NULL, 1);
-    xTaskCreatePinnedToCore(C2UART0,        "Task C2ESP32",     2048, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(Frq_Meter, "Task FrqMeter", 2048, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(UART0_Printer, "Task UART0", 2048, NULL, 1, NULL, 0);
 }
-
 
 void loop()
 {
-    // put your main code here, to run repeatedly:
-    TaskOLEDDisplay(NULL);
-    delay(1000);
+    Last_Key = Key_Action(NULL);
+    OLED_Diplay(NULL);
+    delay(10); // 延时10ms，防止过度扫描
 }
 
-
 // Functions:
-void TaskOLEDDisplay(void *ptParam)
+void OLED_Display_UI1(void *ptParam)
 {
-    display.clear(); // 清除OLED屏
-    display.setFont(ArialMT_Plain_16);        // 设置字体大小
-    display.drawIco16x16(0, 0, fontArray_de); // 显示汉字
-    display.drawIco16x16(16, 0, fontArray_chi); // 显示汉字
-    display.drawIco16x16(32, 0, fontArray_pai);
-    display.drawIco16x16(48, 0, fontArray_pin);
-    display.drawIco16x16(64, 0, fontArray_lv);
-    display.drawIco16x16(80, 0, fontArray_ce);
-    display.drawIco16x16(96, 0, fontArray_liang);
-    display.drawIco16x16(112, 0, fontArray_qi);
-    // display.drawIco16x16(0, 32, fontArray_love);
-    display.drawString(0, 16, "Frequency:(Hz)");
-    display.drawString(8, 32, String(FrqValue_CHN0));
+    display.clear();                   // 清除OLED屏
+    display.setFont(ArialMT_Plain_16); // 设置字体大小
+    display.drawString(0, 0, "Please select");
+    display.drawString(0, 16, "difficulty.(0-10)");
+    if (Last_Key == 11) {
+        display.drawString(42, 32, "HELL");
+    } else if (Last_Key < 10 && Last_Key > 0) {
+        display.drawString(58, 32, (String)Last_Key);
+    }
     display.display(); // 显示
+}
+
+void OLED_Display_UI2(void *ptParam)
+{
+    display.clear();
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(8, 18, "Press * to start!");
+    display.display();
+    if (Last_Key == 11) {
+        if (Game_Start == 1) {
+            for (int i = 5; i > 0; i--) {
+                display.clear();
+                display.drawString(58, 18, (String)i);
+                display.display();
+                delay(1000);
+            }
+            display.clear();
+            display.drawString(24, 0, "You Lose!");
+            Display_Lose();
+            display.display();
+            delay(3000);
+            Game_Start = 0;
+        }
+    } else {
+        if (Game_Start == 1) {
+            for (int i = 5; i > 0; i--) {
+                display.clear();
+                display.drawString(58, 18, (String)i);
+                display.display();
+                delay(1000);
+            }
+            if (UserChoice == 0) {
+                display.clear();
+                display.drawString(28, 0, "You Lose!");
+                Display_Lose();
+                display.display();
+                delay(3000);
+            } else {
+                if (esp_random() % 10 < (10 - Last_Key)) {
+                    display.clear();
+                    display.drawString(26, 0, "You Win!");
+                    Display_Win();
+                    display.display();
+                    delay(3000);
+                } else if (esp_random() % 10 < 5) {
+                    display.clear();
+                    display.drawString(28, 0, "You Lose!");
+                    Display_Lose();
+                    display.display();
+                    delay(3000);
+                } else {
+                    display.clear();
+                    display.drawString(40, 0, "Draw!");
+                    Display_Draw();
+                    display.display();
+                    delay(3000);
+            }
+            }
+            Game_Start = 0;
+        }
+    }
+}
+
+void OLED_Diplay(void *ptParam)
+{
+    if (UI_NUM == 1)
+        OLED_Display_UI1(NULL);
+    else if (UI_NUM == 2)
+        OLED_Display_UI2(NULL);
 }
 
 /*
 TaskFrqMeter
-每隔100mS计算一次频率
+每隔1000mS计算一次频率
 */
-void TaskFrqMeter(void *ptParam) {
-    while(1) {
+void Frq_Meter(void *ptParam)
+{
+    while (1)
+    {
         FrqValue_CHN0 = (float)CountingValue_CHN0 / TimeInterval / 2;
 
         CountingValue_CHN0 = 0;
-        vTaskDelay((unsigned int)(1000* TimeInterval));//转换成 mS 
+        vTaskDelay((unsigned int)(1000 * TimeInterval)); // 转换成 mS
     }
 }
 
@@ -141,32 +262,145 @@ void TaskFrqMeter(void *ptParam) {
 TaskUART0
 每隔1秒向UART0（即默认串口）发送一串字符
 */
-void TaskUART0(void *ptParam) {
+void UART0_Printer(void *ptParam)
+{
     Serial.begin(115200);
-  
-    while(1) {      
-        Serial.print("D25 Frequency:");
+
+    while (1)
+    {
+        Serial.print("D4 Frequency:");
         Serial.println(FrqValue_CHN0);
-    
         vTaskDelay(1000);
     }
 }
 
-void PulseCountingChn0(void) {
+void Pulse_Counting_Chn0(void)
+{
     CountingValue_CHN0 = CountingValue_CHN0 + 1;
 }
 
-/*
-C2UART0
-检测计算机向ESP32发送的消息
-*/
-void C2UART0(void *ptParam) {
-    Serial.begin(115200);
-  
-    while(1) {      
-        if (Serial.available()) {
-            Serial.print("Received:");
-            Serial.println(char(Serial.read()));
+int Scan_Keypad(void *ptParam) {
+  for (int row = 0; row < ROW_NUM; row++) {
+    // 将当前行设置为低电平
+    digitalWrite(row_pins[row], LOW);
+    
+    for (int col = 0; col < COL_NUM; col++) {
+      if (digitalRead(col_pins[col]) == LOW) {
+        // 检测到按键按下
+        while (digitalRead(col_pins[col]) == LOW); // 等待按键释放
+        // 恢复当前行的高电平
+        digitalWrite(row_pins[row], HIGH);
+        return (row * COL_NUM + col + 1); // 返回按键编号
+      }
+    }
+    
+    // 恢复当前行的高电平
+    digitalWrite(row_pins[row], HIGH);
+  }
+
+  return -1; // 没有按键按下
+}
+
+int Key_Action(void *ptParam) {
+    int key = Scan_Keypad(NULL);
+    if (key != -1) {
+        Serial.print("Key Pressed: ");
+        Serial.println(key);
+        // 在此处添加处理按键事件的代码，例如点亮LED
+        switch (key)
+        {
+        case 10:
+            if (UI_NUM == 2) {
+                Game_Start = 1;
+            }
+
+            if (Last_Key == -1) {
+                UI_NUM = 1;
+            } else {
+                UI_NUM = 2;
+            }
+
+            return Last_Key;
+            break;
+        case 12:
+            UI_NUM = 1;
+            return Last_Key;
+            break;
         }
+        if (UI_NUM == 1) {
+            return key;
+        } else {
+            return Last_Key;
+        }
+    }
+    return Last_Key;
+}
+
+int User_Choice() {
+    if (FrqValue_CHN0 > 0 && FrqValue_CHN0 < 10) {
+        UserChoice = 1;
+    } else if (FrqValue_CHN0 >= 10 && FrqValue_CHN0 < 20) {
+        UserChoice = 2;
+    } else if (FrqValue_CHN0 >= 20 && FrqValue_CHN0 < 30) {
+        UserChoice = 3;
+    }
+    return 0;
+}
+
+void Display_Win() {
+    if (UserChoice == 1) {
+        display.drawIco16x16(20, 24, rock_bitmap);
+        display.drawString(54, 26, "VS");
+        display.drawIco16x16(92, 24, scissors_bitmap);
+    } else if (UserChoice == 2) {
+        display.drawIco16x16(20, 24, scissors_bitmap);
+        display.drawString(54, 26, "VS");
+        display.drawIco16x16(92, 24, paper_bitmap);
+    } else if (UserChoice == 3) {
+        display.drawIco16x16(20, 24, paper_bitmap);
+        display.drawString(54, 26, "VS");
+        display.drawIco16x16(92, 24, rock_bitmap);
+    }
+}
+
+void Display_Lose() {
+    if (UserChoice == 0) {
+        display.drawIco16x16(20, 24, question_mark_bitmap);
+        display.drawString(54, 26, "VS");
+        if (esp_random() % 3 == 0) {
+            display.drawIco16x16(92, 24, paper_bitmap);
+        } else if (esp_random() % 2 == 0) {
+            display.drawIco16x16(92, 24, scissors_bitmap);
+        } else {
+            display.drawIco16x16(92, 24, rock_bitmap);
+        }
+    } else if (UserChoice == 1) {
+        display.drawIco16x16(20, 24, rock_bitmap);
+        display.drawString(54, 26, "VS");
+        display.drawIco16x16(92, 24, paper_bitmap);
+    } else if (UserChoice == 2) {
+        display.drawIco16x16(20, 24, scissors_bitmap);
+        display.drawString(54, 26, "VS");
+        display.drawIco16x16(92, 24, rock_bitmap);
+    } else if (UserChoice == 3) {
+        display.drawIco16x16(20, 24, paper_bitmap);
+        display.drawString(54, 26, "VS");
+        display.drawIco16x16(92, 24, scissors_bitmap);
+    }
+}
+
+void Display_Draw() {
+    if (UserChoice == 1) {
+        display.drawIco16x16(20, 24, rock_bitmap);
+        display.drawString(54, 26, "VS");
+        display.drawIco16x16(92, 24, rock_bitmap);
+    } else if (UserChoice == 2) {
+        display.drawIco16x16(20, 24, scissors_bitmap);
+        display.drawString(54, 26, "VS");
+        display.drawIco16x16(92, 24, scissors_bitmap);
+    } else if (UserChoice == 3) {
+        display.drawIco16x16(20, 24, paper_bitmap);
+        display.drawString(54, 26, "VS");
+        display.drawIco16x16(92, 24, paper_bitmap);
     }
 }
