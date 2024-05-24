@@ -3,9 +3,9 @@
 #include "SSD1306Wire.h"
 #include "esp_system.h"
 
-#define FRQ_CNT_GPIO_CHN0 4 // GPIO引脚号
-#define SDA_GPIO 20         // SDA 的 GPIO引脚号
-#define SCL_GPIO 19         // SCL 的 GPIO引脚号
+#define FRQ_CNT_GPIO_CHN0 1 // GPIO引脚号
+#define SDA_GPIO 19         // SDA 的 GPIO引脚号
+#define SCL_GPIO 20         // SCL 的 GPIO引脚号
 #define ROW_NUM 4
 #define COL_NUM 3
 
@@ -13,8 +13,8 @@ int UI_NUM = 1;
 int Last_Key = -1;
 int Game_Start = 0;
 int UserChoice = 0;
-const int row_pins[ROW_NUM] = {38, 37, 36, 35};
-const int col_pins[COL_NUM] = {41, 40, 39};
+const int row_pins[ROW_NUM] = {4, 5, 6, 7};
+const int col_pins[COL_NUM] = {11, 12, 13};
 
 const uint8_t rock_bitmap[] = {
   0b10000000, 0b00001111, 
